@@ -1,164 +1,3 @@
-# name: 09 Final Assessment CD
-
-# on:
-#   push:
-#     branches:
-#       - main
-
-# env:
-#   IMAGE_NAME: tiny-health-app
-#   APP_PORT: "8000"
-
-# jobs:
-#   build-and-push:
-#     name: Build and push release image
-#     runs-on: ubuntu-latest
-
-#     outputs:
-#       image_tag: ${{ steps.image-tag.outputs.value }}
-#       image_ref: ${{ steps.image-ref.outputs.value }}
-
-#     steps:
-#       - name: Check required GitHub secrets
-#         env:
-#           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
-#           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-#           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-#           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-#           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-#           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-#         run: |
-#           for secret in \
-#             REGISTRY_HOST \
-#             REGISTRY_USERNAME \
-#             REGISTRY_PASSWORD \
-#             DEPLOY_HOST \
-#             DEPLOY_USER \
-#             DEPLOY_SSH_KEY
-#           do
-#             if [ -z "${!secret}" ]; then
-#               echo "Missing secret: $secret"
-#               exit 1
-#             fi
-#           done
-
-#       - name: Check out repository
-#         uses: actions/checkout@v6
-
-#       - name: Create image tag
-#         id: image-tag
-#         run: |
-#           TODAY=$(date -u +%Y-%m-%d)
-#           TAG="${TODAY}-${GITHUB_RUN_ID}"
-#           echo "value=${TAG}" >> "$GITHUB_OUTPUT"
-
-#       - name: Create full image reference
-#         id: image-ref
-#         env:
-#           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
-#         run: |
-#           IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${{ steps.image-tag.outputs.value }}"
-#           echo "value=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
-
-#       - name: Set up Docker Buildx
-#         uses: docker/setup-buildx-action@v3
-
-#       - name: Log in to registry
-#         uses: docker/login-action@v3
-#         with:
-#           registry: ${{ secrets.REGISTRY_HOST }}
-#           username: ${{ secrets.REGISTRY_USERNAME }}
-#           password: ${{ secrets.REGISTRY_PASSWORD }}
-
-#       - name: Show image reference
-#         run: |
-#           echo "Pushing image:"
-#           echo "${{ steps.image-ref.outputs.value }}"
-
-#       - name: Build and push release image
-#         uses: docker/build-push-action@v6
-#         with:
-#           context: .
-#           push: true
-#           tags: ${{ steps.image-ref.outputs.value }}
-
-#   deploy-to-host:
-#     name: Deploy to remote host
-#     needs:
-#       - build-and-push
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: Deploy image over SSH
-#         uses: appleboy/ssh-action@v1.2.2
-#         env:
-#           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
-#           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-#           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-#           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-#           IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
-#           COMMIT_SHA: ${{ github.sha }}
-#           APP_PORT: ${{ env.APP_PORT }}
-#         with:
-#           host: ${{ secrets.DEPLOY_HOST }}
-#           username: ${{ secrets.DEPLOY_USER }}
-#           key: ${{ secrets.DEPLOY_SSH_KEY }}
-#           envs: REGISTRY_HOST,REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_TAG,IMAGE_REF,COMMIT_SHA,APP_PORT
-#           script: |
-#             set -e
-
-#             docker --version
-
-#             echo "$REGISTRY_PASSWORD" | docker login \
-#               "$REGISTRY_HOST" \
-#               -u "$REGISTRY_USERNAME" \
-#               --password-stdin
-
-#             docker pull "$IMAGE_REF"
-
-#             docker rm -f tiny-health-app || true
-
-#             docker run -d \
-#               --name tiny-health-app \
-#               -p ${APP_PORT}:8000 \
-#               -e APP_ENV=production \
-#               -e APP_VERSION=${IMAGE_TAG} \
-#               -e COMMIT_SHA=${COMMIT_SHA} \
-#               -e DEPLOYED_AT="$(date -u +%FT%TZ)" \
-#               -e IMAGE_TAG=${IMAGE_TAG} \
-#               -e DEPLOY_MODE=github-actions \
-#               "$IMAGE_REF"
-
-#             for i in 1 2 3 4 5 6 7 8 9 10; do
-#               if curl --fail --silent \
-#                 http://127.0.0.1:${APP_PORT}/health
-#               then
-#                 break
-#               fi
-#               sleep 2
-#             done
-
-#             echo "=== VERSION ==="
-#             curl --fail http://127.0.0.1:${APP_PORT}/version
-
-#             echo
-#             echo "=== STATUS ==="
-#             curl --fail http://127.0.0.1:${APP_PORT}/status
-
-#       - name: Validate deployed app from GitHub Actions
-#         run: |
-#           curl --fail \
-#             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/health
-
-#           echo
-#           curl --fail \
-#             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/version
-
-#           echo
-#           curl --fail \
-#             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/status
-
-
 name: 09 Final Assessment CD
 
 on:
@@ -182,6 +21,7 @@ jobs:
     steps:
       - name: Check required GitHub secrets
         env:
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -189,6 +29,7 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           for secret in \
+            REGISTRY_HOST \
             REGISTRY_USERNAME \
             REGISTRY_PASSWORD \
             DEPLOY_HOST \
@@ -214,17 +55,18 @@ jobs:
       - name: Create full image reference
         id: image-ref
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_HOST }}
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
         run: |
-          IMAGE_REF="${REGISTRY_USERNAME}/${IMAGE_NAME}:${{ steps.image-tag.outputs.value }}"
+          IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${{ steps.image-tag.outputs.value }}"
           echo "value=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to registry
         uses: docker/login-action@v3
         with:
+          registry: ${{ secrets.REGISTRY_HOST }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -250,6 +92,7 @@ jobs:
       - name: Deploy image over SSH
         uses: appleboy/ssh-action@v1.2.2
         env:
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
@@ -260,16 +103,14 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_TAG,IMAGE_REF,COMMIT_SHA,APP_PORT
+          envs: REGISTRY_HOST,REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_TAG,IMAGE_REF,COMMIT_SHA,APP_PORT
           script: |
             set -e
-
-            echo "IMAGE_REF=$IMAGE_REF"
-            echo "IMAGE_TAG=$IMAGE_TAG"
 
             docker --version
 
             echo "$REGISTRY_PASSWORD" | docker login \
+              "$REGISTRY_HOST" \
               -u "$REGISTRY_USERNAME" \
               --password-stdin
 
@@ -290,19 +131,13 @@ jobs:
 
             for i in 1 2 3 4 5 6 7 8 9 10; do
               if curl --fail --silent \
-                http://127.0.0.1:${APP_PORT}/health; then
+                http://127.0.0.1:${APP_PORT}/health
+              then
                 break
               fi
-
-              echo "Waiting for application..."
               sleep 2
             done
 
-            echo
-            echo "=== HEALTH ==="
-            curl --fail http://127.0.0.1:${APP_PORT}/health
-
-            echo
             echo "=== VERSION ==="
             curl --fail http://127.0.0.1:${APP_PORT}/version
 
@@ -312,16 +147,13 @@ jobs:
 
       - name: Validate deployed app from GitHub Actions
         run: |
-          echo "=== HEALTH ==="
           curl --fail \
             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/health
 
           echo
-          echo "=== VERSION ==="
           curl --fail \
             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/version
 
           echo
-          echo "=== STATUS ==="
           curl --fail \
             http://${{ secrets.DEPLOY_HOST }}:${APP_PORT}/status
