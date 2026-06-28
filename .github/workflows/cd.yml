@@ -58,8 +58,17 @@ jobs:
         id: image-ref
         env:
           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
           IMAGE_TAG: ${{ steps.image-tag.outputs.value }}
         run: |
+          if [ -z "${REGISTRY_HOST}" ] || [ -z "${IMAGE_NAME}" ] || [ -z "${IMAGE_TAG}" ]; then
+            echo "One or more required values are empty:"
+            echo "  REGISTRY_HOST=[${REGISTRY_HOST}]"
+            echo "  IMAGE_NAME=[${IMAGE_NAME}]"
+            echo "  IMAGE_TAG=[${IMAGE_TAG}]"
+            exit 1
+          fi
+
           IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${IMAGE_TAG}"
 
           echo "Image reference: ${IMAGE_REF}"
@@ -92,6 +101,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Confirm image reference was received
+        env:
+          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          if [ -z "${IMAGE_REF}" ] || [ -z "${IMAGE_TAG}" ]; then
+            echo "Missing job output from build-and-push:"
+            echo "  IMAGE_REF=[${IMAGE_REF}]"
+            echo "  IMAGE_TAG=[${IMAGE_TAG}]"
+            exit 1
+          fi
+          echo "IMAGE_REF=[${IMAGE_REF}]"
+          echo "IMAGE_TAG=[${IMAGE_TAG}]"
+
       - name: Deploy image over SSH
         uses: appleboy/ssh-action@v1.2.2
         env:
@@ -113,6 +136,11 @@ jobs:
             echo "REGISTRY_HOST=[$REGISTRY_HOST]"
             echo "IMAGE_TAG=[$IMAGE_TAG]"
             echo "IMAGE_REF=[$IMAGE_REF]"
+
+            if [ -z "$IMAGE_REF" ]; then
+              echo "IMAGE_REF is empty on the remote host. Aborting."
+              exit 1
+            fi
 
             docker --version
 
@@ -160,6 +188,8 @@ jobs:
             curl --fail http://127.0.0.1:${APP_PORT}/status
 
       - name: Validate deployed app from GitHub Actions
+        env:
+          APP_PORT: ${{ env.APP_PORT }}
         run: |
           echo "=== HEALTH ==="
           curl --fail \
