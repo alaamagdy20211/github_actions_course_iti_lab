@@ -14,9 +14,16 @@ jobs:
     name: Build and push release image
     runs-on: ubuntu-latest
 
+    # NOTE:
+    # image_ref is intentionally NOT exposed as a job output.
+    # It is built from secrets.REGISTRY_HOST, and GitHub Actions
+    # silently drops any job output that contains a secret value
+    # ("Skip output '...' since it may contain secret."). Only
+    # non-secret values (the tag) are passed between jobs. Any
+    # job that needs the full reference rebuilds it locally from
+    # secrets + this output.
     outputs:
       image_tag: ${{ steps.image-tag.outputs.value }}
-      image_ref: ${{ steps.image-ref.outputs.value }}
 
     steps:
       - name: Check required GitHub secrets
@@ -54,26 +61,6 @@ jobs:
           echo "Image tag: ${TAG}"
           echo "value=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Create full image reference
-        id: image-ref
-        env:
-          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ steps.image-tag.outputs.value }}
-        run: |
-          if [ -z "${REGISTRY_HOST}" ] || [ -z "${IMAGE_NAME}" ] || [ -z "${IMAGE_TAG}" ]; then
-            echo "One or more required values are empty:"
-            echo "  REGISTRY_HOST=[${REGISTRY_HOST}]"
-            echo "  IMAGE_NAME=[${IMAGE_NAME}]"
-            echo "  IMAGE_TAG=[${IMAGE_TAG}]"
-            exit 1
-          fi
-
-          IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-          echo "Image reference: ${IMAGE_REF}"
-          echo "value=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -84,16 +71,12 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Show image reference
-        run: |
-          echo "${{ steps.image-ref.outputs.value }}"
-
       - name: Build and push release image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.image-ref.outputs.value }}
+          tags: ${{ secrets.REGISTRY_HOST }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.value }}
 
   deploy-to-host:
     name: Deploy to remote host
@@ -101,18 +84,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Confirm image reference was received
+      - name: Confirm tag was received
         env:
-          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          if [ -z "${IMAGE_REF}" ] || [ -z "${IMAGE_TAG}" ]; then
-            echo "Missing job output from build-and-push:"
-            echo "  IMAGE_REF=[${IMAGE_REF}]"
-            echo "  IMAGE_TAG=[${IMAGE_TAG}]"
+          if [ -z "${IMAGE_TAG}" ]; then
+            echo "IMAGE_TAG output from build-and-push is empty. Aborting."
             exit 1
           fi
-          echo "IMAGE_REF=[${IMAGE_REF}]"
           echo "IMAGE_TAG=[${IMAGE_TAG}]"
 
       - name: Deploy image over SSH
@@ -121,19 +100,22 @@ jobs:
           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
           COMMIT_SHA: ${{ github.sha }}
           APP_PORT: ${{ env.APP_PORT }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: REGISTRY_HOST,REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_TAG,IMAGE_REF,COMMIT_SHA,APP_PORT
+          envs: REGISTRY_HOST,REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_NAME,IMAGE_TAG,COMMIT_SHA,APP_PORT
           script: |
             set -e
 
+            IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${IMAGE_TAG}"
+
             echo "REGISTRY_HOST=[$REGISTRY_HOST]"
+            echo "IMAGE_NAME=[$IMAGE_NAME]"
             echo "IMAGE_TAG=[$IMAGE_TAG]"
             echo "IMAGE_REF=[$IMAGE_REF]"
 
